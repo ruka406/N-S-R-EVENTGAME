@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>豪華 縁日射的祭 スマホ版</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        body {
+            background-color: #0b0710;
+            color: #fff;
+            font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            height: 100vh;
+            max-height: 900px;
+            box-shadow: 0 0 30px rgba(255, 50, 0, 0.5);
+            background: #0b0710;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let CANVAS_WIDTH = 450;
+let CANVAS_HEIGHT = 800;
+let HEADER_HEIGHT = 110;
+
+function resizeCanvas() {
+    const container = document.getElementById('gameContainer');
+    canvas.width = container.clientWidth;
+    canvas.height = container.clientHeight;
+    CANVAS_WIDTH = canvas.width;
+    CANVAS_HEIGHT = canvas.height;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// Web Audio API
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+let bgmInterval = null;
+let bgmStep = 0;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new AudioContext();
+        startBGM();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function startBGM() {
+    if (bgmInterval) return;
+    
+    const scale = [220, 261.63, 293.66, 329.63, 392.00, 440.00];
+    const melodyPattern = [0, 2, 3, 5, 3, 2, 0, -1, 3, 2, 0, 2, 0, -1, 5, 3];
+
+    bgmInterval = setInterval(() => {
+        if (!audioCtx || gameState !== STATE_PLAYING) return;
+
+        const now = audioCtx.currentTime;
+        const step = bgmStep % 16;
+
+        if (step % 4 === 0) {
+            const taiko = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            taiko.type = 'sine';
+            taiko.frequency.setValueAtTime(120, now);
+            taiko.frequency.exponentialRampToValueAtTime(30, now + 0.15);
+            g.gain.setValueAtTime(0.08, now);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+            taiko.connect(g);
+            g.connect(audioCtx.destination);
+            taiko.start(now);
+            taiko.stop(now + 0.15);
+        }
+
+        if (step % 2 === 1) {
+            const shime = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            shime.type = 'triangle';
+            shime.frequency.setValueAtTime(600, now);
+            shime.frequency.exponentialRampToValueAtTime(250, now + 0.04);
+            g.gain.setValueAtTime(0.03, now);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+            shime.connect(g);
+            g.connect(audioCtx.destination);
+            shime.start(now);
+            shime.stop(now + 0.04);
+        }
+
+        const noteIdx = melodyPattern[step];
+        if (noteIdx !== -1 && Math.random() > 0.1) {
+            const fue = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            fue.type = 'sine';
+            fue.frequency.setValueAtTime(scale[noteIdx], now);
+            g.gain.setValueAtTime(0.025, now);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+            fue.connect(g);
+            g.connect(audioCtx.destination);
+            fue.start(now);
+            fue.stop(now + 0.12);
+        }
+
+        bgmStep++;
+    }, 130);
+}
+
+function playLaserSound() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(90, audioCtx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.08);
+}
+
+function playHitSound() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(480, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.06);
+    gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.06);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.06);
+}
+
+function playExplosionSound() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.22);
+    gain.gain.setValueAtTime(0.7, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.22);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.22);
+
+    const bufferSize = audioCtx.sampleRate * 0.25;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const output = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+
+    const whiteNoise = audioCtx.createBufferSource();
+    whiteNoise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(900, audioCtx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.25);
+    const nGain = audioCtx.createGain();
+    nGain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+    nGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+
+    whiteNoise.connect(filter);
+    filter.connect(nGain);
+    nGain.connect(audioCtx.destination);
+    whiteNoise.start();
+}
+
+function playPlayerExplosionSound() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.6);
+    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.6);
+}
+
+// ゲーム状態管理
+const STATE_TITLE = 0;
+const STATE_PLAYING = 1;
+const STATE_GAMEOVER = 2;
+let gameState = STATE_TITLE;
+
+let score = 0;
+let combo = 0;
+let highScore = localStorage.getItem('highScore') || 0;
+let gameFrame = 0;
+let gameOverReason = "";
+
+const player = {
+    x: CANVAS_WIDTH / 2,
+    y: CANVAS_HEIGHT - 60,
+    cooldown: 0,
+    maxCooldown: 12
+};
+
+let bullets = [];
+let enemies = [];
+let particles = [];
+let floatingTexts = [];
+let backgroundFireworks = [];
+
+function triggerBgFirework() {
+    if (Math.random() < 0.04) {
+        backgroundFireworks.push({
+            x: Math.random() * CANVAS_WIDTH,
+            y: HEADER_HEIGHT + Math.random() * (CANVAS_HEIGHT * 0.35),
+            radius: 0,
+            maxRadius: Math.random() * 40 + 20,
+            color: ['#ff3366', '#ffcc00', '#00ffff', '#ff9900', '#ff00ff', '#33ff55'][Math.floor(Math.random() * 6)],
+            alpha: 1
+        });
+    }
+}
+
+let touchX = CANVAS_WIDTH / 2;
+let isTouching = false;
+
+function updateTouchPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches ? e.touches[0] : e;
+    touchX = touch.clientX - rect.left;
+}
+
+canvas.addEventListener('mousemove', (e) => updateTouchPos(e));
+canvas.addEventListener('mousedown', (e) => {
+    initAudio();
+    isTouching = true;
+    updateTouchPos(e);
+    handleTap();
+});
+canvas.addEventListener('mouseup', () => { isTouching = false; });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    updateTouchPos(e);
+}, { passive: false });
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    initAudio();
+    isTouching = true;
+    updateTouchPos(e);
+    handleTap();
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    isTouching = false;
+}, { passive: false });
+
+function handleTap() {
+    if (gameState === STATE_TITLE || gameState === STATE_GAMEOVER) {
+        resetGame();
+        gameState = STATE_PLAYING;
+    }
+}
+
+function resetGame() {
+    score = 0;
+    combo = 0;
+    gameOverReason = "";
+    player.x = CANVAS_WIDTH / 2;
+    bullets = [];
+    enemies = [];
+    particles = [];
+    floatingTexts = [];
+}
+
+function triggerGameOver(reason) {
+    playPlayerExplosionSound();
+    gameOverReason = reason;
+    gameState = STATE_GAMEOVER;
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('highScore', highScore);
+    }
+}
+
+function addFloatingText(text, x, y, color = '#ffea00') {
+    floatingTexts.push({
+        text: text, x: x, y: y, color: color, alpha: 1, vy: -1.5
+    });
+}
+
+function createFireworks(x, y) {
+    const count = 35;
+    const palette = ['#ff0055', '#ffcc00', '#00ffff', '#ff6600', '#ee00ff', '#ffffff', '#33ff33'];
+    const baseColor = palette[Math.floor(Math.random() * palette.length)];
+
+    for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 / count) * i;
+        const speed = Math.random() * 4.5 + 2;
+        particles.push({
+            x: x, y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: Math.random() * 3 + 1.5,
+            color: Math.random() > 0.3 ? baseColor : '#ffffff',
+            alpha: 1, life: Math.random() * 20 + 20, maxLife: 40
+        });
+    }
+}
+
+function createExplosion(x, y, color) {
+    for (let i = 0; i < 8; i++) {
+        particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            size: Math.random() * 2.5 + 1,
+            color: color, alpha: 1,
+            life: Math.random() * 15 + 10, maxLife: 25
+        });
+    }
+}
+
+let enemySpawnTimer = 0;
+
+function update() {
+    gameFrame++;
+
+    player.y = CANVAS_HEIGHT - 50;
+
+    triggerBgFirework();
+    backgroundFireworks.forEach((fw, index) => {
+        fw.radius += 1.8;
+        fw.alpha -= 0.02;
+        if (fw.alpha <= 0) backgroundFireworks.splice(index, 1);
+    });
+
+    if (gameState !== STATE_PLAYING) return;
+
+    const speedMultiplier = 1 + (score / 150);
+
+    player.x += (touchX - player.x) * 0.25;
+    if (player.x < 25) player.x = 25;
+    if (player.x > CANVAS_WIDTH - 25) player.x = CANVAS_WIDTH - 25;
+
+    if (player.cooldown > 0) player.cooldown--;
+    if (isTouching && player.cooldown === 0) {
+        bullets.push({ x: player.x, y: player.y - 45, radius: 6, speed: 14 });
+        playLaserSound();
+        player.cooldown = player.maxCooldown;
+    }
+
+    bullets.forEach((bullet, index) => {
+        bullet.y -= bullet.speed;
+        if (bullet.y < HEADER_HEIGHT - 10) bullets.splice(index, 1);
+    });
+
+    enemySpawnTimer++;
+    const spawnInterval = Math.max(12, 40 - Math.floor(score / 20));
+    if (enemySpawnTimer > spawnInterval) {
+        const rand = Math.random();
+        let type = 'candy';
+        let hp = 1;
+        let points = 10;
+        let size = 36;
+
+        if (rand < 0.25) {
+            type = 'goldfish';
+            hp = 3;
+            points = 50;
+            size = 44;
+        } else if (rand < 0.6) {
+            type = 'mask';
+            hp = 2;
+            points = 30;
+            size = 40;
+        }
+
+        const baseSpeed = Math.random() * 1.5 + 1.8;
+        enemies.push({
+            x: 35 + Math.random() * (CANVAS_WIDTH - size - 70) + size / 2,
+            y: HEADER_HEIGHT - size,
+            width: size, height: size,
+            speed: baseSpeed * speedMultiplier,
+            type: type, hp: hp, points: points
+        });
+        enemySpawnTimer = 0;
+    }
+
+    enemies.forEach((enemy, eIndex) => {
+        enemy.y += enemy.speed;
+
+        if (enemy.y > CANVAS_HEIGHT) {
+            enemies.splice(eIndex, 1);
+            combo = 0;
+            
+            if (score === 0) {
+                createFireworks(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+                triggerGameOver("0点の状態で景品を見逃しました！");
+                return;
+            }
+
+            let penalty = 10;
+            if (score >= 300) penalty = 2;
+            else if (score >= 150) penalty = 5;
+            else if (score >= 50) penalty = 8;
+            score = Math.max(0, score - penalty);
+            addFloatingText(`-${penalty}`, enemy.x, CANVAS_HEIGHT - 40, '#ff3333');
+        }
+
+        const distToPlayer = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+        if (distToPlayer < (enemy.width / 2 + 15)) {
+            createFireworks(player.x, player.y);
+            triggerGameOver("景品が銃に激突しました！");
+        }
+
+        bullets.forEach((bullet, bIndex) => {
+            const distToBullet = Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y);
+            if (distToBullet < enemy.width / 2 + bullet.radius) {
+                bullets.splice(bIndex, 1);
+                enemy.hp--;
+                createExplosion(bullet.x, bullet.y, '#d7a15c');
+
+                if (enemy.hp <= 0) {
+                    combo++;
+                    createFireworks(enemy.x, enemy.y);
+                    playExplosionSound();
+                    enemies.splice(eIndex, 1);
+                    
+                    const addedPoints = enemy.points + (combo > 1 ? combo * 5 : 0);
+                    score += addedPoints;
+                    
+                    if (combo > 1) {
+                        addFloatingText(`${combo}連撃! +${addedPoints}`, enemy.x, enemy.y, '#ffea00');
+                    } else {
+                        addFloatingText(`+${addedPoints}`, enemy.x, enemy.y, '#ffffff');
+                    }
+                } else {
+                    playHitSound();
+                }
+            }
+        });
+    });
+
+    particles.forEach((p, index) => {
+        p.x += p.vx; p.y += p.vy;
+        p.vx *= 0.96; p.vy *= 0.96; p.vy += 0.03;
+        p.alpha = p.life / p.maxLife;
+        p.life--;
+        if (p.life <= 0) particles.splice(index, 1);
+    });
+
+    floatingTexts.forEach((ft, index) => {
+        ft.y += ft.vy;
+        ft.alpha -= 0.02;
+        if (ft.alpha <= 0) floatingTexts.splice(index, 1);
+    });
+}
+
+function drawFestivalBackground() {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, HEADER_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - HEADER_HEIGHT);
+    ctx.clip();
+
+    const grad = ctx.createLinearGradient(0, HEADER_HEIGHT, 0, CANVAS_HEIGHT);
+    grad.addColorStop(0, '#0a0518');
+    grad.addColorStop(0.5, '#1e0b2e');
+    grad.addColorStop(1, '#331226');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, HEADER_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - HEADER_HEIGHT);
+
+    backgroundFireworks.forEach(fw => {
+        ctx.save();
+        ctx.strokeStyle = fw.color;
+        ctx.globalAlpha = fw.alpha;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(fw.x, fw.y, fw.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    });
+
+    ctx.fillStyle = '#4a2511';
+    ctx.fillRect(0, HEADER_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - HEADER_HEIGHT);
+    ctx.fillStyle = '#2d1508';
+    for (let y = HEADER_HEIGHT + 100; y < CANVAS_HEIGHT; y += 160) {
+        ctx.fillRect(0, y, CANVAS_WIDTH, 12);
+        ctx.fillStyle = '#5c3016';
+        ctx.fillRect(0, y - 4, CANVAS_WIDTH, 4);
+        ctx.fillStyle = '#2d1508';
+    }
+
+    const curtainWidth = 25;
+    for (let y = HEADER_HEIGHT; y < CANVAS_HEIGHT; y += 25) {
+        ctx.fillStyle = (Math.floor(y / 25) % 2 === 0) ? '#cc1100' : '#ffffff';
+        ctx.fillRect(0, y, curtainWidth, 25);
+        ctx.fillRect(CANVAS_WIDTH - curtainWidth, y, curtainWidth, 25);
+    }
+
+    ctx.restore();
+}
+
+function drawLanterns() {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, HEADER_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - HEADER_HEIGHT);
+    ctx.clip();
+
+    const lanternCount = 4;
+    const spacing = CANVAS_WIDTH / (lanternCount + 1);
+    ctx.strokeStyle = '#221100';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, HEADER_HEIGHT + 15);
+    ctx.quadraticCurveTo(CANVAS_WIDTH / 2, HEADER_HEIGHT + 30, CANVAS_WIDTH, HEADER_HEIGHT + 15);
+    ctx.stroke();
+
+    for (let i = 1; i <= lanternCount; i++) {
+        const lx = spacing * i;
+        const swing = Math.sin(gameFrame * 0.04 + i) * 6;
+        const ly = HEADER_HEIGHT + 20 + Math.sin((i / (lanternCount + 1)) * Math.PI) * 8;
+
+        ctx.save();
+        ctx.translate(lx, ly);
+        ctx.rotate((swing * Math.PI) / 180);
+
+        ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(0, 0); ctx.stroke();
+
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ff2200';
+        ctx.fillStyle = '#e61900';
+        ctx.beginPath();
+        ctx.ellipse(0, 16, 14, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(-9, -1, 18, 3);
+        ctx.fillRect(-9, 30, 18, 3);
+
+        ctx.fillStyle = '#ffea00';
+        ctx.font = 'bold 11px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('祭', 0, 20);
+
+        ctx.restore();
+    }
+    ctx.restore();
+}
+
+function drawGun(x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    ctx.fillStyle = '#663311';
+    ctx.fillRect(-4, -38, 8, 50);
+
+    ctx.fillStyle = '#d4af37';
+    ctx.fillRect(-6, -20, 12, 5);
+    ctx.fillRect(-6, -4, 12, 5);
+
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(-3, -55, 6, 18);
+    ctx.fillStyle = '#222222';
+    ctx.fillRect(-2, -57, 4, 3);
+
+    ctx.strokeStyle = '#ffcc00';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, -68, 8, 0, Math.PI * 2);
+    ctx.moveTo(0, -78); ctx.lineTo(0, -58);
+    ctx.moveTo(-10, -68); ctx.lineTo(10, -68);
+    ctx.stroke();
+
+    ctx.fillStyle = '#442200';
+    ctx.beginPath();
+    ctx.moveTo(-6, 12); ctx.lineTo(6, 12);
+    ctx.lineTo(10, 38); ctx.lineTo(-10, 38);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function drawPrize(enemy) {
+    ctx.save();
+    ctx.translate(enemy.x, enemy.y);
+
+    if (enemy.type === 'goldfish') {
+        ctx.shadowBlur = 8; ctx.shadowColor = '#00ffff';
+        ctx.fillStyle = 'rgba(120, 220, 255, 0.7)';
+        ctx.beginPath();
+        ctx.moveTo(-10, -15); ctx.lineTo(10, -15);
+        ctx.quadraticCurveTo(16, 8, 0, 16);
+        ctx.quadraticCurveTo(-16, 8, -10, -15);
+        ctx.fill();
+        ctx.fillStyle = '#ff0033';
+        ctx.fillRect(-5, -18, 10, 3);
+        ctx.fillStyle = '#ff3300';
+        ctx.beginPath(); ctx.ellipse(0, 2, 6, 3, 0.2, 0, Math.PI * 2); ctx.fill();
+
+    } else if (enemy.type === 'mask') {
+        ctx.shadowBlur = 8; ctx.shadowColor = '#ffffff';
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.ellipse(0, 0, 14, 16, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(-12, -8); ctx.lineTo(-7, -20); ctx.lineTo(-2, -10); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(12, -8); ctx.lineTo(7, -20); ctx.lineTo(2, -10); ctx.fill();
+        ctx.strokeStyle = '#cc0022'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(-5, -2, 3, Math.PI, 0); ctx.stroke();
+        ctx.beginPath(); ctx.arc(5, -2, 3, Math.PI, 0); ctx.stroke();
+
+    } else {
+        ctx.shadowBlur = 6; ctx.shadowColor = '#ff0033';
+        ctx.fillStyle = '#f0d0a0';
+        ctx.fillRect(-2, 0, 4, 18);
+        ctx.fillStyle = '#e6002b';
+        ctx.beginPath(); ctx.arc(0, -5, 12, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function drawCorkBullet(bullet) {
+    ctx.save();
+    ctx.translate(bullet.x, bullet.y);
+    ctx.fillStyle = '#d7a15c';
+    ctx.beginPath(); ctx.arc(0, 0, bullet.radius, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+}
+
+// 【スマホ対応】画面最上部の黒枠領域にスコアと配点表を描画
+function drawTopHeader() {
+    ctx.save();
+    ctx.fillStyle = '#07040d';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, HEADER_HEIGHT);
+    ctx.strokeStyle = '#331a00';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, HEADER_HEIGHT); ctx.lineTo(CANVAS_WIDTH, HEADER_HEIGHT);
+    ctx.stroke();
+
+    // スコア表示（左側）
+    ctx.shadowBlur = 6; ctx.shadowColor = '#000000';
+    ctx.fillStyle = '#ffea00';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('得点', 15, 25);
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(`${score}`, 15, 52);
+
+    ctx.fillStyle = '#aaaaaa';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(`最高 ${highScore}`, 15, 75);
+
+    if (combo > 1) {
+        ctx.fillStyle = '#00ffff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText(`${combo}連撃!`, 15, 95);
+    }
+
+    // 配点表（右側）
+    const rx = CANVAS_WIDTH - 150;
+    const ry = 10;
+    ctx.fillStyle = 'rgba(25, 15, 30, 0.8)';
+    ctx.strokeStyle = '#d4af37';
+    ctx.lineWidth = 1;
+    ctx.fillRect(rx, ry, 135, 90);
+    ctx.strokeRect(rx, ry, 135, 90);
+
+    ctx.fillStyle = '#ffea00';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('【配点表】', rx + 67, ry + 15);
+
+    drawPrize({ x: rx + 18, y: ry + 32, type: 'goldfish' });
+    ctx.fillStyle = '#ffffff'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('金魚: 50pt(3発)', rx + 36, ry + 35);
+
+    drawPrize({ x: rx + 18, y: ry + 52, type: 'mask' });
+    ctx.fillText('お面: 30pt(2発)', rx + 36, ry + 55);
+
+    drawPrize({ x: rx + 18, y: ry + 72, type: 'candy' });
+    ctx.fillText('飴玉: 10pt(1発)', rx + 36, ry + 75);
+
+    ctx.restore();
+}
+
+function draw() {
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    drawFestivalBackground();
+
+    particles.forEach(p => {
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1.0;
+
+    drawLanterns();
+
+    if (gameState === STATE_PLAYING || gameState === STATE_GAMEOVER) {
+        bullets.forEach(bullet => drawCorkBullet(bullet));
+        drawGun(player.x, player.y);
+        enemies.forEach(enemy => drawPrize(enemy));
+
+        floatingTexts.forEach(ft => {
+            ctx.save();
+            ctx.globalAlpha = ft.alpha;
+            ctx.fillStyle = ft.color;
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(ft.text, ft.x, ft.y);
+            ctx.restore();
+        });
+    }
+
+    drawTopHeader();
+
+    if (gameState === STATE_TITLE) {
+        ctx.fillStyle = 'rgba(15, 5, 25, 0.88)';
+        ctx.fillRect(0, HEADER_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - HEADER_HEIGHT);
+
+        ctx.shadowBlur = 12; ctx.shadowColor = '#ff3300';
+        ctx.fillStyle = '#ffea00';
+        ctx.font = 'bold 26px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('大盛況! 縁日射的祭', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 40);
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText('タップしてスタート', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+        ctx.fillStyle = '#ffccaa';
+        ctx.font = '13px sans-serif';
+        ctx.fillText('操作: 左右にスライドして狙いを定める', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 65);
+    }
+
+    if (gameState === STATE_GAMEOVER) {
+        ctx.fillStyle = 'rgba(30, 5, 15, 0.85)';
+        ctx.fillRect(0, HEADER_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - HEADER_HEIGHT);
+
+        ctx.shadowBlur = 10; ctx.shadowColor = '#ff0055';
+        ctx.fillStyle = '#ff6688';
+        ctx.font = 'bold 36px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 50);
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffea00';
+        ctx.font = '13px sans-serif';
+        ctx.fillText(gameOverReason, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 10);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '20px sans-serif';
+        ctx.fillText(`最終得点: ${score}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+        
+        ctx.fillStyle = '#00ffff';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText('タップしてリトライ', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
+    }
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+
+</body>
+</html>
